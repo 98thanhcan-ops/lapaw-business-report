@@ -147,9 +147,7 @@ def read_shopee() -> tuple[list[dict], list[dict]]:
                 )
 
             for _, row in frame.iterrows():
-                sku = clean(row.get("SKU phân loại hàng"))
-                if not sku:
-                    continue
+                sku = clean(row.get("SKU phân loại hàng")) or "Không có SKU / chưa phân bổ"
                 base = max(float(row["line_pre_voucher"]), 0.0)
                 denominator = max(float(order_pre.get(row["order_id"], 0.0)), 0.0)
                 allocated_voucher = order_discount.get(row["order_id"], 0.0) * base / denominator if denominator else 0.0
@@ -218,20 +216,19 @@ def read_tiktok() -> tuple[list[dict], list[dict]]:
                 order["rev"] += revenue
                 order["qty"] += qty
                 order["c"] = 1 if order["c"] or cancelled else 0
-                if sku:
-                    lines.append(
-                        {
-                            "d": date_iso(created),
-                            "ym": ym(year, month),
-                            "ch": "TikTok",
-                            "st": status_group(status),
-                            "c": 1 if cancelled else 0,
-                            "sku": sku,
-                            "cat": category(product, sku),
-                            "rev": round(revenue, 2),
-                            "qty": round(qty, 2),
-                        }
-                    )
+                lines.append(
+                    {
+                        "d": date_iso(created),
+                        "ym": ym(year, month),
+                        "ch": "TikTok",
+                        "st": status_group(status),
+                        "c": 1 if cancelled else 0,
+                        "sku": sku or "Không có SKU / chưa phân bổ",
+                        "cat": category(product, sku),
+                        "rev": round(revenue, 2),
+                        "qty": round(qty, 2),
+                    }
+                )
     orders = list(order_map.values())
     for order in orders:
         order["rev"] = round(order["rev"], 2)
@@ -413,7 +410,7 @@ def build_report() -> None:
       </section>
       <section id="product" class="section">
         <div class="grid kpis">
-          <div class="card kpi"><div class="icon">VND</div><div><div class="kpi-title">Doanh số SKU</div><div class="kpi-value" id="productRevenue"></div><div class="kpi-note">Shopee voucher order-level đã allocate xuống SKU</div></div></div>
+          <div class="card kpi"><div class="icon">VND</div><div><div class="kpi-title">Doanh số SKU</div><div class="kpi-value" id="productRevenue"></div><div class="kpi-note">Bao gồm dòng không có SKU / chưa phân bổ</div></div></div>
           <div class="card kpi"><div class="icon gold">SKU</div><div><div class="kpi-title">SKU active</div><div class="kpi-value" id="productSku"></div><div class="kpi-note" id="productPresence"></div></div></div>
           <div class="card kpi"><div class="icon orange">Qty</div><div><div class="kpi-title">Lượng bán</div><div class="kpi-value" id="productQty"></div><div class="kpi-note">Shopee + TikTok</div></div></div>
           <div class="card kpi"><div class="icon dark">Avg</div><div><div class="kpi-title">Giá bán bình quân</div><div class="kpi-value" id="productAsp"></div><div class="kpi-note">Doanh số / lượng bán</div></div></div>
