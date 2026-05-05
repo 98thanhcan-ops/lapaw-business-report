@@ -409,7 +409,7 @@ def build_report() -> None:
           <div class="card"><h2>Doanh số theo kênh</h2><div class="channel-wrap" id="channelTable"></div><div class="note">Shopee DT order-level = Σ(W x Qty - Z) - AF - AK. TikTok DT = M - O. Đơn hủy không tính doanh số.</div></div>
         </div>
         <div class="grid two-col" style="margin-top:14px">
-          <div class="card"><h2>Khách hàng mới và quay lại</h2><div id="customerTable"></div><div class="note">Shopee dùng Người Mua; TikTok dùng Buyer Username. Khách mới = mua 1 đơn trong kỳ lọc; khách quay lại = mua từ 2 đơn trở lên trong kỳ lọc.</div></div>
+          <div class="card"><h2>Customer type by month</h2><svg id="customerChart" class="chart"></svg><div class="note">New = khách mua lần đầu trong tháng. Returning = khách đã mua trước đó và quay lại trong tháng. Retained = subset của Returning, có mua cả tháng trước.</div></div>
           <div class="card"><h2>Doanh số theo danh mục</h2><div id="categoryTableBusiness"></div></div>
         </div>
       </section>
@@ -474,7 +474,9 @@ let chartGrain = 'month';
 let rawProductRows = [];
 function showTip(event, row) {
   const tip = document.getElementById('chartTip');
-  tip.innerHTML = `<strong>${esc(row.label || row.key)}</strong>Doanh số: ${fmt(row.rev)} VND<br>Số đơn: ${fmt(row.orders)}<br>AOV: ${fmt(row.rev/Math.max(row.orders,1))} VND`;
+  if (row.tipType === 'customer') tip.innerHTML = `<strong>${esc(row.label || row.key)}</strong>Số khách: ${fmt(row.rev)}`;
+  else if (row.tipType === 'customerMonth') tip.innerHTML = `<strong>${esc(row.label || row.key)}</strong>New: ${fmt(row.rev)}<br>Returning: ${fmt(row.orders)}<br>Retained: ${fmt(row.retained)}`;
+  else tip.innerHTML = `<strong>${esc(row.label || row.key)}</strong>Doanh số: ${fmt(row.rev)} VND<br>Số đơn: ${fmt(row.orders)}<br>AOV: ${fmt(row.rev/Math.max(row.orders,1))} VND`;
   tip.style.left = Math.min(event.clientX + 14, window.innerWidth - 260) + 'px';
   tip.style.top = Math.max(12, event.clientY - 14) + 'px';
   tip.style.display = 'block';
@@ -499,6 +501,61 @@ function customerSplit(rows) {
   let newc = 0, ret = 0;
   counts.forEach(count => { if (count > 1) ret += 1; else newc += 1; });
   return { total: counts.size, newc, ret };
+}
+function addMonths(ym, delta) {
+  const [y, m] = ym.split('-').map(Number);
+  return monthLabel(y * 12 + m + delta);
+}
+function customerTypeByMonth(rows) {
+  const monthCustomers = new Map();
+  rows.filter(r=>r.cust).forEach(r => {
+    if (!monthCustomers.has(r.ym)) monthCustomers.set(r.ym, new Set());
+    monthCustomers.get(r.ym).add(r.cust);
+  });
+  const firstMonth = new Map();
+  DATA.orders.filter(r=>!r.c && r.cust).forEach(r => {
+    if (!firstMonth.has(r.cust) || r.ym < firstMonth.get(r.cust)) firstMonth.set(r.cust, r.ym);
+  });
+  return Array.from(monthCustomers.keys()).sort().map(ym => {
+    const customers = monthCustomers.get(ym);
+    const previous = monthCustomers.get(addMonths(ym, -1)) || new Set();
+    let newc = 0, returning = 0, retained = 0;
+    customers.forEach(cust => {
+      if (firstMonth.get(cust) === ym) newc += 1;
+      if (firstMonth.get(cust) < ym) {
+        returning += 1;
+        if (previous.has(cust)) retained += 1;
+      }
+    });
+    return {ym,total:customers.size,newc,returning,retained};
+  });
+}
+function drawCustomerChart(data) {
+  const svg = document.getElementById('customerChart'); const width = svg.clientWidth || 900; const height = svg.clientHeight || 320; const pad = {left:52,right:118,top:24,bottom:54};
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`); svg.innerHTML = '';
+  const ns = 'http://www.w3.org/2000/svg';
+  const el = (name, attrs) => { const node = document.createElementNS(ns, name); Object.entries(attrs).forEach(([k,v]) => node.setAttribute(k,v)); svg.appendChild(node); return node; };
+  const innerW = width-pad.left-pad.right; const innerH = height-pad.top-pad.bottom; const maxValue = Math.max(...data.flatMap(d => [d.newc,d.returning,d.retained]), 1);
+  [0,.25,.5,.75,1].forEach(t => { const y = pad.top + innerH - t*innerH; el('line',{x1:pad.left,y1:y,x2:width-pad.right,y2:y,stroke:'#d9e4e1'}); const tx = el('text',{x:pad.left-8,y:y+4,'text-anchor':'end',fill:'#6f7c7a','font-size':11}); tx.textContent = fmt(maxValue*t); });
+  const xAt = i => pad.left + (data.length <= 1 ? innerW/2 : i*innerW/(data.length-1));
+  const yAt = v => pad.top + innerH - v/maxValue*innerH;
+  const series = [
+    {key:'newc', label:'New', color:'#6aaee7'},
+    {key:'retained', label:'Retained', color:'#6b5fb5'},
+    {key:'returning', label:'Returning', color:'#ec7772'},
+  ];
+  series.forEach(s => {
+    el('polyline',{points:data.map((d,i)=>`${xAt(i)},${yAt(d[s.key])}`).join(' '),fill:'none',stroke:s.color,'stroke-width':3,'stroke-linecap':'round','stroke-linejoin':'round'});
+    data.forEach((d,i) => { const dot = el('circle',{cx:xAt(i),cy:yAt(d[s.key]),r:4,fill:s.color}); dot.addEventListener('mousemove', event => showTip(event, {key:d.ym,label:`${s.label} · ${d.ym}`,rev:d[s.key],tipType:'customer'})); dot.addEventListener('mouseleave', hideTip); });
+  });
+  const step = Math.max(1, Math.ceil(data.length / 14));
+  data.forEach((d,i) => {
+    if (i % step === 0) { const label = el('text',{x:xAt(i),y:height-22,'text-anchor':'end',fill:'#6f7c7a','font-size':10,transform:`rotate(-45 ${xAt(i)} ${height-22})`}); label.textContent = d.ym; }
+    const hit = el('rect',{x:xAt(i)-Math.max(12, innerW/Math.max(data.length,1)/2),y:pad.top,width:Math.max(24, innerW/Math.max(data.length,1)),height:innerH,fill:'transparent'});
+    hit.addEventListener('mousemove', event => showTip(event, {key:d.ym,label:d.ym,rev:d.newc,orders:d.returning,retained:d.retained,tipType:'customerMonth'}));
+    hit.addEventListener('mouseleave', hideTip);
+  });
+  series.forEach((s,i) => { const x = width - pad.right + 18; const y = pad.top + 14 + i*22; el('circle',{cx:x,cy:y-4,r:4,fill:s.color}); const tx = el('text',{x:x+12,y:y,fill:'#27302f','font-size':12,'font-weight':700}); tx.textContent = s.label; });
 }
 function currentRange() {
   const selected = document.querySelector('input[name="period"]:checked').value;
@@ -548,10 +605,7 @@ function renderBusiness(f) {
   const monthly = new Map(); orders.forEach(r => { const key = trendKey(r); groupAdd(monthly, key, {rev:r.rev, orders:1}); }); drawMonthly(Array.from(monthly, ([key,v]) => ({key,label:trendLabel(key),...v})).sort((a,b)=>a.key.localeCompare(b.key)));
   const channel = new Map(); allOrders.forEach(r => groupAdd(channel, r.ch, {total:1,cancelled:r.c?1:0,rev:r.c?0:r.rev,qty:r.c?0:r.qty,orders:r.c?0:1})); const channelRows = Array.from(channel, ([ch,v]) => ({ch,...v})).sort((a,b)=>b.rev-a.rev); const totalRevenue = channelRows.reduce((s,r)=>s+r.rev,0);
   document.getElementById('channelTable').innerHTML = table(['Kênh','Doanh số','Số đơn','Lượng bán','AOV','Tỉ lệ hủy','Tỷ trọng'], channelRows.map(r => [esc(r.ch),fmt(r.rev),fmt(r.orders),fmt(r.qty),fmt(r.rev/Math.max(r.orders,1)),pct(r.cancelled/Math.max(r.total,1)),pct(r.rev/Math.max(totalRevenue,1))]), 'doanh_so_theo_kenh');
-  const channels = ['Shopee','TikTok'].filter(ch => document.getElementById('channelFilter').value === 'All' || document.getElementById('channelFilter').value === ch);
-  const customerStats = channels.map(ch => ({ch, ...customerSplit(orders.filter(r=>r.ch===ch))}));
-  const customerTotal = customerStats.reduce((s,r)=>s+r.total,0);
-  document.getElementById('customerTable').innerHTML = table(['Kênh','Tổng khách','Khách mới','Khách quay lại','% share'], customerStats.map(r => [r.ch,fmt(r.total),fmt(r.newc),fmt(r.ret),pct(r.total/Math.max(customerTotal,1))]), 'khach_hang_moi_quay_lai');
+  drawCustomerChart(customerTypeByMonth(orders));
   const provinceMap = new Map();
   orders.forEach(r => {
     const p = r.p || 'Không rõ'; const q = r.q || 'Không rõ';
