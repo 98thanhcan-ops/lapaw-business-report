@@ -286,7 +286,10 @@ def build_report() -> None:
     :root { --teal:#3f9b8d; --teal-dark:#23786d; --mint:#dff4ec; --gold:#e7bd55; --orange:#e99a5b; --ink:#27302f; --muted:#6f7c7a; --line:#d9e4e1; --panel:#fff; --bg:#f2f5f3; }
     * { box-sizing: border-box; }
     body { margin:0; font-family: Inter, Arial, sans-serif; color:var(--ink); background:var(--bg); }
+    body.is-loading .shell { opacity:.45; pointer-events:none; }
     .shell { max-width:1660px; margin:0 auto; padding:20px; }
+    .loading { position:fixed; inset:auto 18px 18px auto; background:var(--teal-dark); color:#fff; padding:10px 12px; border-radius:4px; font-weight:800; font-size:13px; box-shadow:0 4px 14px rgba(20,40,36,.18); z-index:20; }
+    body:not(.is-loading) .loading { display:none; }
     header { display:flex; justify-content:space-between; align-items:flex-end; gap:24px; margin-bottom:14px; }
     h1 { margin:0; font-size:30px; color:var(--teal-dark); letter-spacing:0; }
     .subtitle,.period,.note { color:var(--muted); font-size:13px; line-height:1.45; }
@@ -315,6 +318,8 @@ def build_report() -> None:
     .kpi-note { margin-top:8px; color:var(--muted); font-size:13px; }
     h2 { margin:0 0 12px; font-size:17px; color:var(--teal-dark); }
     .chart { width:100%; height:320px; }
+    .chart-tip { position:fixed; display:none; max-width:240px; background:#173f39; color:#fff; border-radius:4px; padding:9px 10px; font-size:12px; line-height:1.4; box-shadow:0 8px 22px rgba(20,40,36,.22); z-index:30; pointer-events:none; }
+    .chart-tip strong { display:block; margin-bottom:4px; color:#dff4ec; }
     .table-head { display:flex; align-items:center; justify-content:flex-end; margin:0 0 8px; }
     .download-btn { border:1px solid var(--line); background:#eef7f4; color:var(--teal-dark); padding:7px 10px; border-radius:4px; font-weight:800; cursor:pointer; font-size:12px; }
     .download-btn:hover { background:#dff4ec; }
@@ -426,6 +431,8 @@ def build_report() -> None:
     </div>
   </div>
 </main>
+<div id="loading" class="loading">Đang xử lý dữ liệu...</div>
+<div id="chartTip" class="chart-tip"></div>
 <script>
 const DATA = __DATA__;
 const WEEKDAYS = ['Thứ hai','Thứ ba','Thứ tư','Thứ năm','Thứ sáu','Thứ bảy','Chủ nhật'];
@@ -465,6 +472,14 @@ const monthIndex = ym => { const [y,m] = ym.split('-').map(Number); return y*12 
 const monthLabel = idx => { const y = Math.floor((idx - 1)/12); const m = idx - y*12; return y + '-' + String(m).padStart(2,'0'); };
 let chartGrain = 'month';
 let rawProductRows = [];
+function showTip(event, row) {
+  const tip = document.getElementById('chartTip');
+  tip.innerHTML = `<strong>${esc(row.label || row.key)}</strong>Doanh số: ${fmt(row.rev)} VND<br>Số đơn: ${fmt(row.orders)}<br>AOV: ${fmt(row.rev/Math.max(row.orders,1))} VND`;
+  tip.style.left = Math.min(event.clientX + 14, window.innerWidth - 260) + 'px';
+  tip.style.top = Math.max(12, event.clientY - 14) + 'px';
+  tip.style.display = 'block';
+}
+function hideTip() { document.getElementById('chartTip').style.display = 'none'; }
 function groupAdd(map, key, values) { if (!map.has(key)) map.set(key, {}); const row = map.get(key); Object.entries(values).forEach(([k,v]) => row[k] = (row[k] || 0) + v); return row; }
 function weekStartIso(value) {
   const d = toDate(value); const diff = (d.getDay()+6)%7; d.setDate(d.getDate()-diff); return dateIso(d);
@@ -515,8 +530,8 @@ function drawMonthly(data) {
   [0,.25,.5,.75,1].forEach(t => { const y = pad.top + innerH - t*innerH; el('line',{x1:pad.left,y1:y,x2:width-pad.right,y2:y,stroke:'#d9e4e1'}); const tx = el('text',{x:pad.left-8,y:y+4,'text-anchor':'end',fill:'#6f7c7a','font-size':11}); tx.textContent = moneyShort(maxRevenue*t); });
   const points = [];
   const step = Math.max(1, Math.ceil(data.length / 16));
-  data.forEach((d,i) => { const x = pad.left + i*innerW/data.length + innerW/data.length/2; const barH = d.rev/maxRevenue*innerH; addTitle(el('rect',{x:x-barW/2,y:pad.top+innerH-barH,width:barW,height:barH,fill:'#3f9b8d',rx:2}), `${d.label || d.key}\nDoanh số: ${fmt(d.rev)} VND\nSố đơn: ${fmt(d.orders)}`); const y2 = pad.top+innerH-d.orders/maxOrders*innerH; points.push(`${x},${y2}`); if (i % step === 0) { const label = el('text',{x,y:height-22,'text-anchor':'end',fill:'#6f7c7a','font-size':10,transform:`rotate(-45 ${x} ${height-22})`}); label.textContent = d.label || d.key; } });
-  el('polyline',{points:points.join(' '),fill:'none',stroke:'#e99a5b','stroke-width':3}); data.forEach((d,i) => { const x = pad.left + i*innerW/data.length + innerW/data.length/2; const y = pad.top+innerH-d.orders/maxOrders*innerH; addTitle(el('circle',{cx:x,cy:y,r:4,fill:'#e99a5b'}), `${d.label || d.key}\nDoanh số: ${fmt(d.rev)} VND\nSố đơn: ${fmt(d.orders)}`); });
+  data.forEach((d,i) => { const x = pad.left + i*innerW/data.length + innerW/data.length/2; const barH = d.rev/maxRevenue*innerH; const bar = addTitle(el('rect',{x:x-barW/2,y:pad.top+innerH-barH,width:barW,height:barH,fill:'#3f9b8d',rx:2}), `${d.label || d.key}\nDoanh số: ${fmt(d.rev)} VND\nSố đơn: ${fmt(d.orders)}`); bar.addEventListener('mousemove', event => showTip(event, d)); bar.addEventListener('mouseleave', hideTip); const y2 = pad.top+innerH-d.orders/maxOrders*innerH; points.push(`${x},${y2}`); if (i % step === 0) { const label = el('text',{x,y:height-22,'text-anchor':'end',fill:'#6f7c7a','font-size':10,transform:`rotate(-45 ${x} ${height-22})`}); label.textContent = d.label || d.key; } });
+  el('polyline',{points:points.join(' '),fill:'none',stroke:'#e99a5b','stroke-width':3}); data.forEach((d,i) => { const x = pad.left + i*innerW/data.length + innerW/data.length/2; const y = pad.top+innerH-d.orders/maxOrders*innerH; const dot = addTitle(el('circle',{cx:x,cy:y,r:5,fill:'#e99a5b'}), `${d.label || d.key}\nDoanh số: ${fmt(d.rev)} VND\nSố đơn: ${fmt(d.orders)}`); dot.addEventListener('mousemove', event => showTip(event, d)); dot.addEventListener('mouseleave', hideTip); const hit = el('rect',{x:x-(innerW/data.length/2),y:pad.top,width:innerW/data.length,height:innerH,fill:'transparent'}); hit.addEventListener('mousemove', event => showTip(event, d)); hit.addEventListener('mouseleave', hideTip); });
 }
 function renderBusiness(f) {
   const allOrders = f.orders; const orders = allOrders.filter(r => !r.c); const revenue = orders.reduce((s,r)=>s+r.rev,0); const qty = orders.reduce((s,r)=>s+r.qty,0);
@@ -591,7 +606,7 @@ function renderProduct(f) {
   document.getElementById('productRawTable').innerHTML = `<div class="table-head"><button class="download-btn" data-raw="product">Tải CSV toàn bộ raw</button></div>` + table(['Ngày','Tháng','Kênh','Trạng thái','Đơn hủy','SKU','Danh mục','Doanh số','Lượng bán'], preview, 'raw_product_preview');
   document.getElementById('productRawNote').textContent = `Đang preview ${fmt(Math.min(rawProductRows.length,500))}/${fmt(rawProductRows.length)} dòng theo filter. Nút tải CSV toàn bộ raw xuất đầy đủ tất cả dòng.`;
 }
-function updateDashboard() { tableId = 0; const f = filteredData(); renderBusiness(f); renderProduct(f); }
+function updateDashboard() { document.body.classList.add('is-loading'); setTimeout(() => { tableId = 0; const f = filteredData(); renderBusiness(f); renderProduct(f); document.body.classList.remove('is-loading'); }, 0); }
 function init() {
   document.getElementById('statusFilter').innerHTML = '<option value="All">All</option>' + DATA.statuses.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
   document.getElementById('fromDate').value = DATA.minDate; document.getElementById('toDate').value = DATA.maxDate;
@@ -599,6 +614,7 @@ function init() {
   document.querySelectorAll('.grain').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('.grain').forEach(x=>x.classList.remove('active')); button.classList.add('active'); chartGrain = button.dataset.grain; updateDashboard(); }));
   document.querySelectorAll('.tab').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active')); document.querySelectorAll('.section').forEach(x=>x.classList.remove('active')); button.classList.add('active'); document.getElementById(button.dataset.tab).classList.add('active'); updateDashboard(); }));
   document.addEventListener('click', event => { const button = event.target.closest('.download-btn'); if (button) downloadTable(button); });
+  document.body.classList.add('is-loading');
   window.addEventListener('resize', updateDashboard); updateDashboard();
 }
 init();
