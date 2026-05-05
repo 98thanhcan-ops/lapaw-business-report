@@ -324,6 +324,9 @@ def build_report() -> None:
     .kpi-title { font-size:13px; color:var(--muted); font-weight:800; text-transform:uppercase; }
     .kpi-value { font-size:29px; line-height:1.1; margin-top:8px; color:var(--teal-dark); font-weight:800; white-space:nowrap; }
     .kpi-note { margin-top:8px; color:var(--muted); font-size:13px; }
+    .kpi-change { display:block; margin-top:4px; font-weight:800; }
+    .kpi-change.up { color:var(--teal-dark); }
+    .kpi-change.down { color:#c95f55; }
     h2 { margin:0 0 12px; font-size:17px; color:var(--teal-dark); }
     .chart { width:100%; height:320px; }
     .chart-tip { position:fixed; display:none; max-width:240px; background:#173f39; color:#fff; border-radius:4px; padding:9px 10px; font-size:12px; line-height:1.4; box-shadow:0 8px 22px rgba(20,40,36,.22); z-index:30; pointer-events:none; }
@@ -407,7 +410,7 @@ def build_report() -> None:
           <div class="card kpi"><div class="icon">VND</div><div><div class="kpi-title">Doanh số</div><div class="kpi-value" id="kpiRevenue"></div><div class="kpi-note" id="kpiRevenueNote"></div></div></div>
           <div class="card kpi"><div class="icon gold">#</div><div><div class="kpi-title">Số đơn hàng</div><div class="kpi-value" id="kpiOrders"></div><div class="kpi-note" id="kpiAov"></div></div></div>
           <div class="card kpi"><div class="icon orange">ID</div><div><div class="kpi-title">Khách hàng</div><div class="kpi-value" id="kpiCustomers"></div><div class="kpi-note" id="kpiCustomerNote"></div></div></div>
-          <div class="card kpi"><div class="icon dark">%</div><div><div class="kpi-title">Tỉ lệ hủy</div><div class="kpi-value" id="kpiCancel"></div><div class="kpi-note">Trên tổng đơn theo filter</div></div></div>
+          <div class="card kpi"><div class="icon dark">%</div><div><div class="kpi-title">Tỉ lệ hủy</div><div class="kpi-value" id="kpiCancel"></div><div class="kpi-note" id="kpiCancelNote">Trên tổng đơn theo filter</div></div></div>
         </div>
         <div class="grid two-col" style="margin-top:14px">
           <div class="card"><div class="chart-head"><h2 id="trendTitle">Biến động doanh số và đơn hàng theo tháng</h2><div class="seg"><button class="grain active" data-grain="month">Tháng</button><button class="grain" data-grain="week">Tuần</button><button class="grain" data-grain="day">Ngày</button></div></div><svg id="monthlyChart" class="chart"></svg></div>
@@ -424,10 +427,10 @@ def build_report() -> None:
       </section>
       <section id="product" class="section">
         <div class="grid kpis">
-          <div class="card kpi"><div class="icon">VND</div><div><div class="kpi-title">Doanh số SKU</div><div class="kpi-value" id="productRevenue"></div><div class="kpi-note">Bao gồm dòng không có SKU / chưa phân bổ</div></div></div>
+          <div class="card kpi"><div class="icon">VND</div><div><div class="kpi-title">Doanh số SKU</div><div class="kpi-value" id="productRevenue"></div><div class="kpi-note" id="productRevenueNote">Bao gồm dòng không có SKU / chưa phân bổ</div></div></div>
           <div class="card kpi"><div class="icon gold">SKU</div><div><div class="kpi-title">SKU active</div><div class="kpi-value" id="productSku"></div><div class="kpi-note" id="productPresence"></div></div></div>
-          <div class="card kpi"><div class="icon orange">Qty</div><div><div class="kpi-title">Lượng bán</div><div class="kpi-value" id="productQty"></div><div class="kpi-note">Shopee + TikTok</div></div></div>
-          <div class="card kpi"><div class="icon dark">Avg</div><div><div class="kpi-title">Giá bán bình quân</div><div class="kpi-value" id="productAsp"></div><div class="kpi-note">Doanh số / lượng bán</div></div></div>
+          <div class="card kpi"><div class="icon orange">Qty</div><div><div class="kpi-title">Lượng bán</div><div class="kpi-value" id="productQty"></div><div class="kpi-note" id="productQtyNote">Shopee + TikTok</div></div></div>
+          <div class="card kpi"><div class="icon dark">Avg</div><div><div class="kpi-title">Giá bán bình quân</div><div class="kpi-value" id="productAsp"></div><div class="kpi-note" id="productAspNote">Doanh số / lượng bán</div></div></div>
         </div>
         <div class="grid two-col" style="margin-top:14px">
           <div class="card"><h2>Top SKU theo doanh số</h2><div id="topSkuRevenue"></div></div>
@@ -580,6 +583,20 @@ function currentRange() {
   if (selected === 'week') { const diff = (anchor.getDay()+6)%7; from.setDate(anchor.getDate()-diff); }
   return { from: dateIso(from), to: dateIso(to) };
 }
+function previousRange(range) {
+  const from = toDate(range.from); const to = toDate(range.to);
+  const days = Math.round((to - from) / 86400000) + 1;
+  const prevTo = new Date(from); prevTo.setDate(from.getDate() - 1);
+  const prevFrom = new Date(prevTo); prevFrom.setDate(prevTo.getDate() - days + 1);
+  return { from: dateIso(prevFrom), to: dateIso(prevTo) };
+}
+function changeHtml(current, previous, suffix='') {
+  if (!isFinite(previous) || previous === 0) return `<span class="kpi-change">vs kỳ trước: --</span>`;
+  const change = (current - previous) / Math.abs(previous);
+  const cls = change >= 0 ? 'up' : 'down';
+  const sign = change >= 0 ? '+' : '';
+  return `<span class="kpi-change ${cls}">${sign}${pct(change)} vs kỳ trước${suffix}</span>`;
+}
 function passes(row, range) {
   const status = document.getElementById('statusFilter').value;
   const channel = document.getElementById('channelFilter').value;
@@ -588,8 +605,7 @@ function passes(row, range) {
   if (channel !== 'All' && row.ch !== channel) return false;
   return true;
 }
-function filteredData() {
-  const range = currentRange();
+function filteredForRange(range) {
   const category = document.getElementById('categoryFilter').value;
   const baseOrders = DATA.orders.filter(r => passes(r, range));
   const baseLines = DATA.lines.filter(r => passes(r, range));
@@ -598,6 +614,12 @@ function filteredData() {
   const orderIds = new Set(lines.map(r => r.oid));
   const orders = baseOrders.filter(r => orderIds.has(r.oid));
   return { range, orders, lines, category };
+}
+function filteredData() {
+  const range = currentRange();
+  const current = filteredForRange(range);
+  current.previous = filteredForRange(previousRange(range));
+  return current;
 }
 function renderBars(id, rows, label, value, formatter=moneyShort) {
   const max = Math.max(...rows.map(r => r[value]), 1);
@@ -622,11 +644,16 @@ function renderBusiness(f) {
   const categoryLines = f.lines.filter(r=>!r.c);
   const categoryRevenue = activeCategory === 'All' ? revenue : categoryLines.reduce((s,r)=>s+r.rev,0);
   const categoryQty = activeCategory === 'All' ? qty : categoryLines.reduce((s,r)=>s+r.qty,0);
+  const prevAllOrders = f.previous.orders; const prevOrders = prevAllOrders.filter(r => !r.c); const prevRevenue = prevOrders.reduce((s,r)=>s+r.rev,0); const prevLines = f.previous.lines.filter(r=>!r.c);
+  const prevCategoryRevenue = activeCategory === 'All' ? prevRevenue : prevLines.reduce((s,r)=>s+r.rev,0);
+  const prevCustomers = customerSplit(prevOrders);
+  const prevCancel = prevAllOrders.filter(r=>r.c).length/Math.max(prevAllOrders.length,1);
   const orderRevenue = new Map();
   if (activeCategory === 'All') orders.forEach(r => orderRevenue.set(r.oid, r.rev));
   else categoryLines.forEach(r => orderRevenue.set(r.oid, (orderRevenue.get(r.oid) || 0) + r.rev));
   const customers = customerSplit(orders);
-  document.getElementById('kpiRevenue').textContent = moneyShort(categoryRevenue); document.getElementById('kpiRevenueNote').textContent = fmt(categoryRevenue) + ' VND'; document.getElementById('kpiOrders').textContent = fmt(orders.length); document.getElementById('kpiAov').textContent = 'AOV ' + fmt(categoryRevenue/Math.max(orders.length,1)) + ' VND'; document.getElementById('kpiCustomers').textContent = fmt(customers.total); document.getElementById('kpiCustomerNote').textContent = 'New ' + fmt(customers.newc) + ' · Returning ' + fmt(customers.ret); document.getElementById('kpiCancel').textContent = pct(allOrders.filter(r=>r.c).length/Math.max(allOrders.length,1));
+  const cancelRate = allOrders.filter(r=>r.c).length/Math.max(allOrders.length,1);
+  document.getElementById('kpiRevenue').textContent = moneyShort(categoryRevenue); document.getElementById('kpiRevenueNote').innerHTML = fmt(categoryRevenue) + ' VND' + changeHtml(categoryRevenue, prevCategoryRevenue); document.getElementById('kpiOrders').textContent = fmt(orders.length); document.getElementById('kpiAov').innerHTML = 'AOV ' + fmt(categoryRevenue/Math.max(orders.length,1)) + ' VND' + changeHtml(orders.length, prevOrders.length); document.getElementById('kpiCustomers').textContent = fmt(customers.total); document.getElementById('kpiCustomerNote').innerHTML = 'New ' + fmt(customers.newc) + ' · Returning ' + fmt(customers.ret) + changeHtml(customers.total, prevCustomers.total); document.getElementById('kpiCancel').textContent = pct(cancelRate); document.getElementById('kpiCancelNote').innerHTML = 'Trên tổng đơn theo filter' + changeHtml(cancelRate, prevCancel);
   document.getElementById('trendTitle').textContent = 'Biến động doanh số và đơn hàng theo ' + (chartGrain === 'day' ? 'ngày' : (chartGrain === 'week' ? 'tuần' : 'tháng'));
   const monthly = new Map(); if (activeCategory === 'All') orders.forEach(r => { const key = trendKey(r); groupAdd(monthly, key, {rev:r.rev, orders:1}); }); else categoryLines.forEach(r => { const key = trendKey(r); groupAdd(monthly, key, {rev:r.rev, orders:0}); }); drawMonthly(Array.from(monthly, ([key,v]) => ({key,label:trendLabel(key),...v})).sort((a,b)=>a.key.localeCompare(b.key)));
   const channel = new Map(); if (activeCategory === 'All') allOrders.forEach(r => groupAdd(channel, r.ch, {total:1,cancelled:r.c?1:0,rev:r.c?0:r.rev,qty:r.c?0:r.qty,orders:r.c?0:1})); else { allOrders.forEach(r => groupAdd(channel, r.ch, {total:1,cancelled:r.c?1:0,rev:0,qty:0,orders:r.c?0:1})); categoryLines.forEach(r => groupAdd(channel, r.ch, {rev:r.rev,qty:r.qty})); } const channelRows = Array.from(channel, ([ch,v]) => ({ch,...v})).sort((a,b)=>b.rev-a.rev); const totalRevenue = channelRows.reduce((s,r)=>s+r.rev,0);
@@ -677,7 +704,8 @@ function renderProduct(f) {
   const lines = f.lines.filter(r=>!r.c); const skuMap = new Map(); const catMap = new Map();
   lines.forEach(r => { const item = skuMap.get(r.sku) || {sku:r.sku,cat:r.cat||'Other',rev:0,qty:0,shopee:0,tiktok:0,channels:new Set()}; item.rev += r.rev; item.qty += r.qty; item.channels.add(r.ch); if (r.ch==='Shopee') item.shopee += r.rev; if (r.ch==='TikTok') item.tiktok += r.rev; skuMap.set(r.sku,item); groupAdd(catMap, item.cat, {rev:r.rev,qty:r.qty}); });
   const skus = Array.from(skuMap.values()).sort((a,b)=>b.rev-a.rev); const revenue = skus.reduce((s,r)=>s+r.rev,0); const qty = skus.reduce((s,r)=>s+r.qty,0); const both = skus.filter(r=>r.channels.has('Shopee')&&r.channels.has('TikTok')).length; const shOnly = skus.filter(r=>r.channels.has('Shopee')&&!r.channels.has('TikTok')).length; const ttOnly = skus.filter(r=>r.channels.has('TikTok')&&!r.channels.has('Shopee')).length;
-  document.getElementById('productRevenue').textContent = moneyShort(revenue); document.getElementById('productSku').textContent = fmt(skus.length); document.getElementById('productPresence').textContent = `Both ${fmt(both)} · Shopee-only ${fmt(shOnly)} · TikTok-only ${fmt(ttOnly)}`; document.getElementById('productQty').textContent = fmt(qty); document.getElementById('productAsp').textContent = fmt(revenue/Math.max(qty,1));
+  const prevLines = f.previous.lines.filter(r=>!r.c); const prevSkuSet = new Set(prevLines.map(r=>r.sku)); const prevRevenue = prevLines.reduce((s,r)=>s+r.rev,0); const prevQty = prevLines.reduce((s,r)=>s+r.qty,0); const asp = revenue/Math.max(qty,1); const prevAsp = prevRevenue/Math.max(prevQty,1);
+  document.getElementById('productRevenue').textContent = moneyShort(revenue); document.getElementById('productRevenueNote').innerHTML = 'Bao gồm dòng không có SKU / chưa phân bổ' + changeHtml(revenue, prevRevenue); document.getElementById('productSku').textContent = fmt(skus.length); document.getElementById('productPresence').innerHTML = `Both ${fmt(both)} · Shopee-only ${fmt(shOnly)} · TikTok-only ${fmt(ttOnly)}` + changeHtml(skus.length, prevSkuSet.size); document.getElementById('productQty').textContent = fmt(qty); document.getElementById('productQtyNote').innerHTML = 'Shopee + TikTok' + changeHtml(qty, prevQty); document.getElementById('productAsp').textContent = fmt(asp); document.getElementById('productAspNote').innerHTML = 'Doanh số / lượng bán' + changeHtml(asp, prevAsp);
   renderBars('topSkuRevenue', skus.slice(0,12), 'sku', 'rev'); renderBars('topSkuQty', [...skus].sort((a,b)=>b.qty-a.qty).slice(0,12), 'sku', 'qty', fmt);
   document.getElementById('productTable').innerHTML = table(['SKU','Danh mục','Tổng DT','Shopee DT','TikTok DT','Lượng bán','Kênh','% share'], skus.slice(0,100).map(r => [esc(r.sku),esc(r.cat),fmt(r.rev),fmt(r.shopee),fmt(r.tiktok),fmt(r.qty),r.channels.size===2?'Both':(r.channels.has('Shopee')?'Shopee only':'TikTok only'),pct(r.rev/Math.max(revenue,1))]), 'chi_tiet_sku_noi_2_kenh');
   const top30 = skus.slice(0,30); const maxMonth = Math.max(...lines.map(r=>monthIndex(r.ym)), monthIndex(DATA.maxDate.slice(0,7))); const months = Array.from({length:12}, (_,i)=>monthLabel(maxMonth-11+i)); const monthSku = new Map(); lines.forEach(r => { if (months.includes(r.ym)) monthSku.set(r.ym+'||'+r.sku, (monthSku.get(r.ym+'||'+r.sku)||0)+r.rev); });
