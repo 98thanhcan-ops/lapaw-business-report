@@ -1,0 +1,9 @@
+.DS_Store
+Shopee/
+Shopee 2026/
+TikTok Shop/
+TikTok Shop 2026/
+*.xlsx
+*.xls
+*.csv
+~$*
