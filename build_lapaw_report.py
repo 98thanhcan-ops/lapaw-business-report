@@ -354,6 +354,7 @@ def build_report() -> None:
     .seg button { border:0; background:#eef7f4; color:var(--teal-dark); padding:8px 14px; font-weight:800; cursor:pointer; }
     .seg button.active { background:var(--teal); color:#fff; }
     .bar-row { display:grid; grid-template-columns:minmax(130px,230px) minmax(95px,125px) 1fr 78px 62px; gap:10px; align-items:center; margin:10px 0; font-size:13px; }
+    .bar-row.with-change { grid-template-columns:minmax(130px,230px) minmax(95px,125px) 1fr 78px 62px 72px 72px; }
     .bar-label { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .bar-cat { color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .bar-track { height:24px; background:#eaf2ef; border-radius:4px; overflow:hidden; }
@@ -597,6 +598,15 @@ function changeHtml(current, previous, suffix='') {
   const sign = change >= 0 ? '+' : '';
   return `<span class="kpi-change ${cls}">${sign}${pct(change)} vs kỳ trước${suffix}</span>`;
 }
+function changeText(current, previous) {
+  if (!isFinite(previous) || previous === 0) return '--';
+  const change = (current - previous) / Math.abs(previous);
+  return (change >= 0 ? '+' : '') + pct(change);
+}
+function changeClass(current, previous) {
+  if (!isFinite(previous) || previous === 0) return '';
+  return current >= previous ? 'up' : 'down';
+}
 function passes(row, range) {
   const status = document.getElementById('statusFilter').value;
   const channel = document.getElementById('channelFilter').value;
@@ -621,10 +631,15 @@ function filteredData() {
   current.previous = filteredForRange(previousRange(range));
   return current;
 }
-function renderBars(id, rows, label, value, formatter=moneyShort) {
+function renderBars(id, rows, label, value, formatter=moneyShort, previousMap=null) {
   const max = Math.max(...rows.map(r => r[value]), 1);
   const total = rows.reduce((s, r) => s + (r[value] || 0), 0);
-  document.getElementById(id).innerHTML = rows.map(r => `<div class="bar-row"><div class="bar-label" title="${esc(r[label])}">${esc(r[label])}</div><div class="bar-cat">${esc(r.cat || '')}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.max(3, r[value]/max*100)}%"></div></div><div class="bar-value">${formatter(r[value])}</div><div class="bar-value">${pct((r[value]||0)/Math.max(total,1))}</div></div>`).join('') || '<div class="note">Không có dữ liệu</div>';
+  document.getElementById(id).innerHTML = rows.map(r => {
+    const prev = previousMap ? (previousMap.get(r[label]) || {rev:0, qty:0}) : null;
+    const changeRev = prev ? `<div class="bar-value kpi-change ${changeClass(r.rev, prev.rev)}">${changeText(r.rev, prev.rev)}</div>` : '';
+    const changeQty = prev ? `<div class="bar-value kpi-change ${changeClass(r.qty, prev.qty)}">${changeText(r.qty, prev.qty)}</div>` : '';
+    return `<div class="bar-row ${previousMap ? 'with-change' : ''}"><div class="bar-label" title="${esc(r[label])}">${esc(r[label])}</div><div class="bar-cat">${esc(r.cat || '')}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.max(3, r[value]/max*100)}%"></div></div><div class="bar-value">${formatter(r[value])}</div><div class="bar-value">${pct((r[value]||0)/Math.max(total,1))}</div>${changeRev}${changeQty}</div>`;
+  }).join('') || '<div class="note">Không có dữ liệu</div>';
 }
 function drawMonthly(data) {
   const svg = document.getElementById('monthlyChart'); const width = svg.clientWidth || 900; const height = svg.clientHeight || 320; const pad = {left:54,right:40,top:20,bottom:54};
@@ -657,7 +672,8 @@ function renderBusiness(f) {
   document.getElementById('trendTitle').textContent = 'Biến động doanh số và đơn hàng theo ' + (chartGrain === 'day' ? 'ngày' : (chartGrain === 'week' ? 'tuần' : 'tháng'));
   const monthly = new Map(); if (activeCategory === 'All') orders.forEach(r => { const key = trendKey(r); groupAdd(monthly, key, {rev:r.rev, orders:1}); }); else categoryLines.forEach(r => { const key = trendKey(r); groupAdd(monthly, key, {rev:r.rev, orders:0}); }); drawMonthly(Array.from(monthly, ([key,v]) => ({key,label:trendLabel(key),...v})).sort((a,b)=>a.key.localeCompare(b.key)));
   const channel = new Map(); if (activeCategory === 'All') allOrders.forEach(r => groupAdd(channel, r.ch, {total:1,cancelled:r.c?1:0,rev:r.c?0:r.rev,qty:r.c?0:r.qty,orders:r.c?0:1})); else { allOrders.forEach(r => groupAdd(channel, r.ch, {total:1,cancelled:r.c?1:0,rev:0,qty:0,orders:r.c?0:1})); categoryLines.forEach(r => groupAdd(channel, r.ch, {rev:r.rev,qty:r.qty})); } const channelRows = Array.from(channel, ([ch,v]) => ({ch,...v})).sort((a,b)=>b.rev-a.rev); const totalRevenue = channelRows.reduce((s,r)=>s+r.rev,0);
-  document.getElementById('channelTable').innerHTML = table(['Kênh','Doanh số','Số đơn','Lượng bán','AOV','Tỉ lệ hủy','Tỷ trọng'], channelRows.map(r => [esc(r.ch),fmt(r.rev),fmt(r.orders),fmt(r.qty),fmt(r.rev/Math.max(r.orders,1)),pct(r.cancelled/Math.max(r.total,1)),pct(r.rev/Math.max(totalRevenue,1))]), 'doanh_so_theo_kenh');
+  const prevChannel = new Map(); if (activeCategory === 'All') prevAllOrders.forEach(r => groupAdd(prevChannel, r.ch, {rev:r.c?0:r.rev,qty:r.c?0:r.qty})); else prevLines.forEach(r => groupAdd(prevChannel, r.ch, {rev:r.rev,qty:r.qty}));
+  document.getElementById('channelTable').innerHTML = table(['Kênh','Doanh số','% đổi DT','Số đơn','Lượng bán','% đổi SL','AOV','Tỉ lệ hủy','Tỷ trọng'], channelRows.map(r => { const prev = prevChannel.get(r.ch) || {rev:0,qty:0}; return [esc(r.ch),fmt(r.rev),`<span class="kpi-change ${changeClass(r.rev, prev.rev)}">${changeText(r.rev, prev.rev)}</span>`,fmt(r.orders),fmt(r.qty),`<span class="kpi-change ${changeClass(r.qty, prev.qty)}">${changeText(r.qty, prev.qty)}</span>`,fmt(r.rev/Math.max(r.orders,1)),pct(r.cancelled/Math.max(r.total,1)),pct(r.rev/Math.max(totalRevenue,1))]; }), 'doanh_so_theo_kenh');
   drawCustomerChart(customerTypeByMonth(orders));
   const provinceMap = new Map();
   orders.forEach(r => {
@@ -705,8 +721,10 @@ function renderProduct(f) {
   lines.forEach(r => { const item = skuMap.get(r.sku) || {sku:r.sku,cat:r.cat||'Other',rev:0,qty:0,shopee:0,tiktok:0,channels:new Set()}; item.rev += r.rev; item.qty += r.qty; item.channels.add(r.ch); if (r.ch==='Shopee') item.shopee += r.rev; if (r.ch==='TikTok') item.tiktok += r.rev; skuMap.set(r.sku,item); groupAdd(catMap, item.cat, {rev:r.rev,qty:r.qty}); });
   const skus = Array.from(skuMap.values()).sort((a,b)=>b.rev-a.rev); const revenue = skus.reduce((s,r)=>s+r.rev,0); const qty = skus.reduce((s,r)=>s+r.qty,0); const both = skus.filter(r=>r.channels.has('Shopee')&&r.channels.has('TikTok')).length; const shOnly = skus.filter(r=>r.channels.has('Shopee')&&!r.channels.has('TikTok')).length; const ttOnly = skus.filter(r=>r.channels.has('TikTok')&&!r.channels.has('Shopee')).length;
   const prevLines = f.previous.lines.filter(r=>!r.c); const prevSkuSet = new Set(prevLines.map(r=>r.sku)); const prevRevenue = prevLines.reduce((s,r)=>s+r.rev,0); const prevQty = prevLines.reduce((s,r)=>s+r.qty,0); const asp = revenue/Math.max(qty,1); const prevAsp = prevRevenue/Math.max(prevQty,1);
+  const prevSkuMap = new Map();
+  prevLines.forEach(r => { const item = prevSkuMap.get(r.sku) || {rev:0, qty:0}; item.rev += r.rev; item.qty += r.qty; prevSkuMap.set(r.sku, item); });
   document.getElementById('productRevenue').textContent = moneyShort(revenue); document.getElementById('productRevenueNote').innerHTML = 'Bao gồm dòng không có SKU / chưa phân bổ' + changeHtml(revenue, prevRevenue); document.getElementById('productSku').textContent = fmt(skus.length); document.getElementById('productPresence').innerHTML = `Both ${fmt(both)} · Shopee-only ${fmt(shOnly)} · TikTok-only ${fmt(ttOnly)}` + changeHtml(skus.length, prevSkuSet.size); document.getElementById('productQty').textContent = fmt(qty); document.getElementById('productQtyNote').innerHTML = 'Shopee + TikTok' + changeHtml(qty, prevQty); document.getElementById('productAsp').textContent = fmt(asp); document.getElementById('productAspNote').innerHTML = 'Doanh số / lượng bán' + changeHtml(asp, prevAsp);
-  renderBars('topSkuRevenue', skus.slice(0,12), 'sku', 'rev'); renderBars('topSkuQty', [...skus].sort((a,b)=>b.qty-a.qty).slice(0,12), 'sku', 'qty', fmt);
+  renderBars('topSkuRevenue', skus.slice(0,12), 'sku', 'rev', moneyShort, prevSkuMap); renderBars('topSkuQty', [...skus].sort((a,b)=>b.qty-a.qty).slice(0,12), 'sku', 'qty', fmt, prevSkuMap);
   document.getElementById('productTable').innerHTML = table(['SKU','Danh mục','Tổng DT','Shopee DT','TikTok DT','Lượng bán','Kênh','% share'], skus.slice(0,100).map(r => [esc(r.sku),esc(r.cat),fmt(r.rev),fmt(r.shopee),fmt(r.tiktok),fmt(r.qty),r.channels.size===2?'Both':(r.channels.has('Shopee')?'Shopee only':'TikTok only'),pct(r.rev/Math.max(revenue,1))]), 'chi_tiet_sku_noi_2_kenh');
   const top30 = skus.slice(0,30); const maxMonth = Math.max(...lines.map(r=>monthIndex(r.ym)), monthIndex(DATA.maxDate.slice(0,7))); const months = Array.from({length:12}, (_,i)=>monthLabel(maxMonth-11+i)); const monthSku = new Map(); lines.forEach(r => { if (months.includes(r.ym)) monthSku.set(r.ym+'||'+r.sku, (monthSku.get(r.ym+'||'+r.sku)||0)+r.rev); });
   const maxMatrix = Math.max(...months.flatMap(m => top30.map(s => monthSku.get(m+'||'+s.sku)||0)), 1);
