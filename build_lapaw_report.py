@@ -409,7 +409,7 @@ def build_report() -> None:
           <div class="card"><h2>Doanh số theo kênh</h2><div class="channel-wrap" id="channelTable"></div><div class="note">Shopee DT order-level = Σ(W x Qty - Z) - AF - AK. TikTok DT = M - O. Đơn hủy không tính doanh số.</div></div>
         </div>
         <div class="grid two-col" style="margin-top:14px">
-          <div class="card"><h2>Khách hàng mới và quay lại</h2><div id="customerTable"></div><div class="note">Shopee dùng Người Mua; TikTok dùng Buyer Username. Khách mới là first seen trong toàn dataset rơi vào kỳ lọc.</div></div>
+          <div class="card"><h2>Khách hàng mới và quay lại</h2><div id="customerTable"></div><div class="note">Shopee dùng Người Mua; TikTok dùng Buyer Username. Khách mới = mua 1 đơn trong kỳ lọc; khách quay lại = mua từ 2 đơn trở lên trong kỳ lọc.</div></div>
           <div class="card"><h2>Doanh số theo danh mục</h2><div id="categoryTableBusiness"></div></div>
         </div>
       </section>
@@ -493,6 +493,13 @@ function trendLabel(key) {
   if (chartGrain === 'week') return 'W ' + key.slice(5);
   return key;
 }
+function customerSplit(rows) {
+  const counts = new Map();
+  rows.filter(r=>r.cust).forEach(r => counts.set(r.cust, (counts.get(r.cust) || 0) + 1));
+  let newc = 0, ret = 0;
+  counts.forEach(count => { if (count > 1) ret += 1; else newc += 1; });
+  return { total: counts.size, newc, ret };
+}
 function currentRange() {
   const selected = document.querySelector('input[name="period"]:checked').value;
   if (selected === 'all') return { from: DATA.minDate, to: DATA.maxDate };
@@ -535,14 +542,14 @@ function drawMonthly(data) {
 }
 function renderBusiness(f) {
   const allOrders = f.orders; const orders = allOrders.filter(r => !r.c); const revenue = orders.reduce((s,r)=>s+r.rev,0); const qty = orders.reduce((s,r)=>s+r.qty,0);
-  const customers = new Set(orders.filter(r=>r.cust).map(r=>r.cust)); const newCustomers = new Set(orders.filter(r=>r.cust && r.fd>=f.range.from && r.fd<=f.range.to).map(r=>r.cust)); const returning = new Set(orders.filter(r=>r.cust && r.d>r.fd).map(r=>r.cust));
-  document.getElementById('kpiRevenue').textContent = moneyShort(revenue); document.getElementById('kpiRevenueNote').textContent = fmt(revenue) + ' VND'; document.getElementById('kpiOrders').textContent = fmt(orders.length); document.getElementById('kpiAov').textContent = 'AOV ' + fmt(revenue/Math.max(orders.length,1)) + ' VND'; document.getElementById('kpiCustomers').textContent = fmt(customers.size); document.getElementById('kpiCustomerNote').textContent = 'New ' + fmt(newCustomers.size) + ' · Returning ' + fmt(returning.size); document.getElementById('kpiCancel').textContent = pct(allOrders.filter(r=>r.c).length/Math.max(allOrders.length,1));
+  const customers = customerSplit(orders);
+  document.getElementById('kpiRevenue').textContent = moneyShort(revenue); document.getElementById('kpiRevenueNote').textContent = fmt(revenue) + ' VND'; document.getElementById('kpiOrders').textContent = fmt(orders.length); document.getElementById('kpiAov').textContent = 'AOV ' + fmt(revenue/Math.max(orders.length,1)) + ' VND'; document.getElementById('kpiCustomers').textContent = fmt(customers.total); document.getElementById('kpiCustomerNote').textContent = 'New ' + fmt(customers.newc) + ' · Returning ' + fmt(customers.ret); document.getElementById('kpiCancel').textContent = pct(allOrders.filter(r=>r.c).length/Math.max(allOrders.length,1));
   document.getElementById('trendTitle').textContent = 'Biến động doanh số và đơn hàng theo ' + (chartGrain === 'day' ? 'ngày' : (chartGrain === 'week' ? 'tuần' : 'tháng'));
   const monthly = new Map(); orders.forEach(r => { const key = trendKey(r); groupAdd(monthly, key, {rev:r.rev, orders:1}); }); drawMonthly(Array.from(monthly, ([key,v]) => ({key,label:trendLabel(key),...v})).sort((a,b)=>a.key.localeCompare(b.key)));
   const channel = new Map(); allOrders.forEach(r => groupAdd(channel, r.ch, {total:1,cancelled:r.c?1:0,rev:r.c?0:r.rev,qty:r.c?0:r.qty,orders:r.c?0:1})); const channelRows = Array.from(channel, ([ch,v]) => ({ch,...v})).sort((a,b)=>b.rev-a.rev); const totalRevenue = channelRows.reduce((s,r)=>s+r.rev,0);
   document.getElementById('channelTable').innerHTML = table(['Kênh','Doanh số','Số đơn','Lượng bán','AOV','Tỉ lệ hủy','Tỷ trọng'], channelRows.map(r => [esc(r.ch),fmt(r.rev),fmt(r.orders),fmt(r.qty),fmt(r.rev/Math.max(r.orders,1)),pct(r.cancelled/Math.max(r.total,1)),pct(r.rev/Math.max(totalRevenue,1))]), 'doanh_so_theo_kenh');
   const channels = ['Shopee','TikTok'].filter(ch => document.getElementById('channelFilter').value === 'All' || document.getElementById('channelFilter').value === ch);
-  const customerStats = channels.map(ch => { const subset = orders.filter(r=>r.ch===ch && r.cust); return {ch,total:new Set(subset.map(r=>r.cust)).size,newc:new Set(subset.filter(r=>r.fd>=f.range.from && r.fd<=f.range.to).map(r=>r.cust)).size,ret:new Set(subset.filter(r=>r.d>r.fd).map(r=>r.cust)).size}; });
+  const customerStats = channels.map(ch => ({ch, ...customerSplit(orders.filter(r=>r.ch===ch))}));
   const customerTotal = customerStats.reduce((s,r)=>s+r.total,0);
   document.getElementById('customerTable').innerHTML = table(['Kênh','Tổng khách','Khách mới','Khách quay lại','% share'], customerStats.map(r => [r.ch,fmt(r.total),fmt(r.newc),fmt(r.ret),pct(r.total/Math.max(customerTotal,1))]), 'khach_hang_moi_quay_lai');
   const provinceMap = new Map();
