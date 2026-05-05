@@ -579,6 +579,10 @@ function renderBusiness(f) {
   const heatRows = HOUR_BUCKETS.map((b,i) => [`<strong>${b[0]}</strong>`, ...heat[i].map(v => heatCell(v)), heatCell(rowTotals[i], true)]);
   heatRows.push(['<strong>Tổng</strong>', ...colTotals.map(v => heatCell(v, true)), heatCell(grandTotal, true)]);
   document.getElementById('hourHeatmap').innerHTML = table(['Nhóm giờ',...WEEKDAYS,'Tổng'], heatRows, 'doanh_thu_theo_thu_khung_gio');
+  const catMap = new Map(); const lines = f.lines.filter(r=>!r.c);
+  lines.forEach(r => groupAdd(catMap, r.cat || 'Other', {rev:r.rev,qty:r.qty}));
+  const catTotal = Array.from(catMap.values()).reduce((s,r)=>s+(r.rev||0),0);
+  document.getElementById('categoryTableBusiness').innerHTML = table(['Danh mục','Doanh số','Lượng bán','% share'], Array.from(catMap, ([cat,v]) => ({cat,...v})).sort((a,b)=>b.rev-a.rev).map(r => [esc(r.cat),fmt(r.rev),fmt(r.qty),pct(r.rev/Math.max(catTotal,1))]), 'doanh_so_theo_danh_muc');
 }
 function renderProduct(f) {
   const lines = f.lines.filter(r=>!r.c); const skuMap = new Map(); const catMap = new Map();
@@ -586,7 +590,6 @@ function renderProduct(f) {
   const skus = Array.from(skuMap.values()).sort((a,b)=>b.rev-a.rev); const revenue = skus.reduce((s,r)=>s+r.rev,0); const qty = skus.reduce((s,r)=>s+r.qty,0); const both = skus.filter(r=>r.channels.has('Shopee')&&r.channels.has('TikTok')).length; const shOnly = skus.filter(r=>r.channels.has('Shopee')&&!r.channels.has('TikTok')).length; const ttOnly = skus.filter(r=>r.channels.has('TikTok')&&!r.channels.has('Shopee')).length;
   document.getElementById('productRevenue').textContent = moneyShort(revenue); document.getElementById('productSku').textContent = fmt(skus.length); document.getElementById('productPresence').textContent = `Both ${fmt(both)} · Shopee-only ${fmt(shOnly)} · TikTok-only ${fmt(ttOnly)}`; document.getElementById('productQty').textContent = fmt(qty); document.getElementById('productAsp').textContent = fmt(revenue/Math.max(qty,1));
   renderBars('topSkuRevenue', skus.slice(0,12), 'sku', 'rev'); renderBars('topSkuQty', [...skus].sort((a,b)=>b.qty-a.qty).slice(0,12), 'sku', 'qty', fmt);
-  document.getElementById('categoryTableBusiness').innerHTML = table(['Danh mục','Doanh số','Lượng bán','% share'], Array.from(catMap, ([cat,v]) => ({cat,...v})).sort((a,b)=>b.rev-a.rev).map(r => [esc(r.cat),fmt(r.rev),fmt(r.qty),pct(r.rev/Math.max(revenue,1))]), 'doanh_so_theo_danh_muc');
   document.getElementById('productTable').innerHTML = table(['SKU','Danh mục','Tổng DT','Shopee DT','TikTok DT','Lượng bán','Kênh','% share'], skus.slice(0,100).map(r => [esc(r.sku),esc(r.cat),fmt(r.rev),fmt(r.shopee),fmt(r.tiktok),fmt(r.qty),r.channels.size===2?'Both':(r.channels.has('Shopee')?'Shopee only':'TikTok only'),pct(r.rev/Math.max(revenue,1))]), 'chi_tiet_sku_noi_2_kenh');
   const top30 = skus.slice(0,30); const maxMonth = Math.max(...lines.map(r=>monthIndex(r.ym)), monthIndex(DATA.maxDate.slice(0,7))); const months = Array.from({length:12}, (_,i)=>monthLabel(maxMonth-11+i)); const monthSku = new Map(); lines.forEach(r => { if (months.includes(r.ym)) monthSku.set(r.ym+'||'+r.sku, (monthSku.get(r.ym+'||'+r.sku)||0)+r.rev); });
   const maxMatrix = Math.max(...months.flatMap(m => top30.map(s => monthSku.get(m+'||'+s.sku)||0)), 1);
@@ -606,7 +609,17 @@ function renderProduct(f) {
   document.getElementById('productRawTable').innerHTML = `<div class="table-head"><button class="download-btn" data-raw="product">Tải CSV toàn bộ raw</button></div>` + table(['Ngày','Tháng','Kênh','Trạng thái','Đơn hủy','SKU','Danh mục','Doanh số','Lượng bán'], preview, 'raw_product_preview');
   document.getElementById('productRawNote').textContent = `Đang preview ${fmt(Math.min(rawProductRows.length,500))}/${fmt(rawProductRows.length)} dòng theo filter. Nút tải CSV toàn bộ raw xuất đầy đủ tất cả dòng.`;
 }
-function updateDashboard() { document.body.classList.add('is-loading'); setTimeout(() => { tableId = 0; const f = filteredData(); renderBusiness(f); renderProduct(f); document.body.classList.remove('is-loading'); }, 0); }
+function updateDashboard() {
+  document.body.classList.add('is-loading');
+  setTimeout(() => {
+    tableId = 0;
+    const f = filteredData();
+    const active = document.querySelector('.section.active')?.id || 'business';
+    if (active === 'business') renderBusiness(f);
+    if (active === 'product') renderProduct(f);
+    document.body.classList.remove('is-loading');
+  }, 0);
+}
 function init() {
   document.getElementById('statusFilter').innerHTML = '<option value="All">All</option>' + DATA.statuses.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
   document.getElementById('fromDate').value = DATA.minDate; document.getElementById('toDate').value = DATA.maxDate;
