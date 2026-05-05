@@ -129,8 +129,10 @@ def read_shopee() -> tuple[list[dict], list[dict]]:
 
             for _, row in grouped.iterrows():
                 created = row["created_at"]
+                oid = f"Shopee::{row['order_id']}"
                 orders.append(
                     {
+                        "oid": oid,
                         "d": date_iso(created),
                         "ym": ym(year, month),
                         "ch": "Shopee",
@@ -148,6 +150,7 @@ def read_shopee() -> tuple[list[dict], list[dict]]:
 
             for _, row in frame.iterrows():
                 sku = clean(row.get("SKU phân loại hàng")) or "Không có SKU / chưa phân bổ"
+                oid = f"Shopee::{row['order_id']}"
                 base = max(float(row["line_pre_voucher"]), 0.0)
                 denominator = max(float(order_pre.get(row["order_id"], 0.0)), 0.0)
                 allocated_voucher = order_discount.get(row["order_id"], 0.0) * base / denominator if denominator else 0.0
@@ -156,6 +159,7 @@ def read_shopee() -> tuple[list[dict], list[dict]]:
                 lines.append(
                     {
                         "d": date_iso(row["created_at"]),
+                        "oid": oid,
                         "ym": ym(year, month),
                         "ch": "Shopee",
                         "st": status_group(row["status"]),
@@ -198,7 +202,9 @@ def read_tiktok() -> tuple[list[dict], list[dict]]:
                 cancelled = "hủy" in status.lower()
                 key = (year, month, order_id)
                 if key not in order_map:
+                    oid = f"TikTok::{year}-{month:02d}::{order_id}"
                     order_map[key] = {
+                        "oid": oid,
                         "d": date_iso(created),
                         "ym": ym(year, month),
                         "ch": "TikTok",
@@ -219,6 +225,7 @@ def read_tiktok() -> tuple[list[dict], list[dict]]:
                 lines.append(
                     {
                         "d": date_iso(created),
+                        "oid": order["oid"],
                         "ym": ym(year, month),
                         "ch": "TikTok",
                         "st": status_group(status),
@@ -247,7 +254,7 @@ def add_first_dates(orders: list[dict]) -> None:
 def compact_lines(lines: list[dict]) -> list[dict]:
     grouped: dict[tuple, dict] = {}
     for row in lines:
-        key = (row["d"], row["ym"], row["ch"], row["st"], row["c"], row["sku"], row["cat"])
+        key = (row["oid"], row["d"], row["ym"], row["ch"], row["st"], row["c"], row["sku"], row["cat"])
         if key not in grouped:
             grouped[key] = dict(row)
         else:
@@ -272,6 +279,7 @@ def build_report() -> None:
         "orders": orders,
         "lines": lines,
         "statuses": statuses,
+        "categories": sorted({row["cat"] for row in lines if row.get("cat")}),
         "minDate": min(dates),
         "maxDate": max(dates),
     }
@@ -390,6 +398,7 @@ def build_report() -> None:
       </div>
       <div class="filter-card"><h3>Trạng thái đơn hàng</h3><select id="statusFilter"></select></div>
       <div class="filter-card"><h3>Sàn/Shop</h3><select id="channelFilter"><option value="All">All</option><option>Shopee</option><option>TikTok</option></select></div>
+      <div class="filter-card"><h3>Danh mục</h3><select id="categoryFilter"></select></div>
     </aside>
     <div>
       <div class="tabs"><button class="tab active" data-tab="business">Tổng doanh số</button><button class="tab" data-tab="product">Doanh số sản phẩm</button></div>
@@ -579,7 +588,17 @@ function passes(row, range) {
   if (channel !== 'All' && row.ch !== channel) return false;
   return true;
 }
-function filteredData() { const range = currentRange(); return { range, orders: DATA.orders.filter(r => passes(r, range)), lines: DATA.lines.filter(r => passes(r, range)) }; }
+function filteredData() {
+  const range = currentRange();
+  const category = document.getElementById('categoryFilter').value;
+  const baseOrders = DATA.orders.filter(r => passes(r, range));
+  const baseLines = DATA.lines.filter(r => passes(r, range));
+  if (category === 'All') return { range, orders: baseOrders, lines: baseLines };
+  const lines = baseLines.filter(r => r.cat === category);
+  const orderIds = new Set(lines.map(r => r.oid));
+  const orders = baseOrders.filter(r => orderIds.has(r.oid));
+  return { range, orders, lines, category };
+}
 function renderBars(id, rows, label, value, formatter=moneyShort) {
   const max = Math.max(...rows.map(r => r[value]), 1);
   const total = rows.reduce((s, r) => s + (r[value] || 0), 0);
@@ -599,20 +618,28 @@ function drawMonthly(data) {
 }
 function renderBusiness(f) {
   const allOrders = f.orders; const orders = allOrders.filter(r => !r.c); const revenue = orders.reduce((s,r)=>s+r.rev,0); const qty = orders.reduce((s,r)=>s+r.qty,0);
+  const activeCategory = document.getElementById('categoryFilter').value;
+  const categoryLines = f.lines.filter(r=>!r.c);
+  const categoryRevenue = activeCategory === 'All' ? revenue : categoryLines.reduce((s,r)=>s+r.rev,0);
+  const categoryQty = activeCategory === 'All' ? qty : categoryLines.reduce((s,r)=>s+r.qty,0);
+  const orderRevenue = new Map();
+  if (activeCategory === 'All') orders.forEach(r => orderRevenue.set(r.oid, r.rev));
+  else categoryLines.forEach(r => orderRevenue.set(r.oid, (orderRevenue.get(r.oid) || 0) + r.rev));
   const customers = customerSplit(orders);
-  document.getElementById('kpiRevenue').textContent = moneyShort(revenue); document.getElementById('kpiRevenueNote').textContent = fmt(revenue) + ' VND'; document.getElementById('kpiOrders').textContent = fmt(orders.length); document.getElementById('kpiAov').textContent = 'AOV ' + fmt(revenue/Math.max(orders.length,1)) + ' VND'; document.getElementById('kpiCustomers').textContent = fmt(customers.total); document.getElementById('kpiCustomerNote').textContent = 'New ' + fmt(customers.newc) + ' · Returning ' + fmt(customers.ret); document.getElementById('kpiCancel').textContent = pct(allOrders.filter(r=>r.c).length/Math.max(allOrders.length,1));
+  document.getElementById('kpiRevenue').textContent = moneyShort(categoryRevenue); document.getElementById('kpiRevenueNote').textContent = fmt(categoryRevenue) + ' VND'; document.getElementById('kpiOrders').textContent = fmt(orders.length); document.getElementById('kpiAov').textContent = 'AOV ' + fmt(categoryRevenue/Math.max(orders.length,1)) + ' VND'; document.getElementById('kpiCustomers').textContent = fmt(customers.total); document.getElementById('kpiCustomerNote').textContent = 'New ' + fmt(customers.newc) + ' · Returning ' + fmt(customers.ret); document.getElementById('kpiCancel').textContent = pct(allOrders.filter(r=>r.c).length/Math.max(allOrders.length,1));
   document.getElementById('trendTitle').textContent = 'Biến động doanh số và đơn hàng theo ' + (chartGrain === 'day' ? 'ngày' : (chartGrain === 'week' ? 'tuần' : 'tháng'));
-  const monthly = new Map(); orders.forEach(r => { const key = trendKey(r); groupAdd(monthly, key, {rev:r.rev, orders:1}); }); drawMonthly(Array.from(monthly, ([key,v]) => ({key,label:trendLabel(key),...v})).sort((a,b)=>a.key.localeCompare(b.key)));
-  const channel = new Map(); allOrders.forEach(r => groupAdd(channel, r.ch, {total:1,cancelled:r.c?1:0,rev:r.c?0:r.rev,qty:r.c?0:r.qty,orders:r.c?0:1})); const channelRows = Array.from(channel, ([ch,v]) => ({ch,...v})).sort((a,b)=>b.rev-a.rev); const totalRevenue = channelRows.reduce((s,r)=>s+r.rev,0);
+  const monthly = new Map(); if (activeCategory === 'All') orders.forEach(r => { const key = trendKey(r); groupAdd(monthly, key, {rev:r.rev, orders:1}); }); else categoryLines.forEach(r => { const key = trendKey(r); groupAdd(monthly, key, {rev:r.rev, orders:0}); }); drawMonthly(Array.from(monthly, ([key,v]) => ({key,label:trendLabel(key),...v})).sort((a,b)=>a.key.localeCompare(b.key)));
+  const channel = new Map(); if (activeCategory === 'All') allOrders.forEach(r => groupAdd(channel, r.ch, {total:1,cancelled:r.c?1:0,rev:r.c?0:r.rev,qty:r.c?0:r.qty,orders:r.c?0:1})); else { allOrders.forEach(r => groupAdd(channel, r.ch, {total:1,cancelled:r.c?1:0,rev:0,qty:0,orders:r.c?0:1})); categoryLines.forEach(r => groupAdd(channel, r.ch, {rev:r.rev,qty:r.qty})); } const channelRows = Array.from(channel, ([ch,v]) => ({ch,...v})).sort((a,b)=>b.rev-a.rev); const totalRevenue = channelRows.reduce((s,r)=>s+r.rev,0);
   document.getElementById('channelTable').innerHTML = table(['Kênh','Doanh số','Số đơn','Lượng bán','AOV','Tỉ lệ hủy','Tỷ trọng'], channelRows.map(r => [esc(r.ch),fmt(r.rev),fmt(r.orders),fmt(r.qty),fmt(r.rev/Math.max(r.orders,1)),pct(r.cancelled/Math.max(r.total,1)),pct(r.rev/Math.max(totalRevenue,1))]), 'doanh_so_theo_kenh');
   drawCustomerChart(customerTypeByMonth(orders));
   const provinceMap = new Map();
   orders.forEach(r => {
     const p = r.p || 'Không rõ'; const q = r.q || 'Không rõ';
+    const rev = orderRevenue.get(r.oid) || 0;
     if (!provinceMap.has(p)) provinceMap.set(p, {p, rev:0, orders:0, districts:new Map()});
     const province = provinceMap.get(p);
-    province.rev += r.rev; province.orders += 1;
-    groupAdd(province.districts, q, {rev:r.rev, orders:1});
+    province.rev += rev; province.orders += 1;
+    groupAdd(province.districts, q, {rev, orders:1});
   });
   const provinces = Array.from(provinceMap.values()).sort((a,b)=>b.rev-a.rev).slice(0,40);
   const regionTotal = provinces.reduce((s,p)=>s+p.rev,0);
@@ -631,7 +658,8 @@ function renderBusiness(f) {
     row.querySelector('.toggle').textContent = open ? '-' : '+';
     document.querySelectorAll(`.district-row[data-parent="${id}"]`).forEach(child => child.classList.toggle('hidden', !open));
   }));
-  const heat = Array.from({length:HOUR_BUCKETS.length}, () => Array(7).fill(0)); orders.forEach(r => { const b = HOUR_BUCKETS.findIndex(x => r.h>=x[1] && r.h<x[2]); if (b>=0 && r.w>=0) heat[b][r.w] += r.rev; });
+  const orderById = new Map(orders.map(r => [r.oid, r]));
+  const heat = Array.from({length:HOUR_BUCKETS.length}, () => Array(7).fill(0)); orders.forEach(r => { const b = HOUR_BUCKETS.findIndex(x => r.h>=x[1] && r.h<x[2]); if (b>=0 && r.w>=0) heat[b][r.w] += activeCategory === 'All' ? r.rev : 0; }); if (activeCategory !== 'All') categoryLines.forEach(r => { const order = orderById.get(r.oid); if (!order) return; const b = HOUR_BUCKETS.findIndex(x => order.h>=x[1] && order.h<x[2]); if (b>=0 && order.w>=0) heat[b][order.w] += r.rev; });
   const rowTotals = heat.map(row => row.reduce((s,v)=>s+v,0));
   const colTotals = WEEKDAYS.map((_, col) => heat.reduce((s,row)=>s+row[col],0));
   const grandTotal = rowTotals.reduce((s,v)=>s+v,0);
@@ -683,8 +711,9 @@ function updateDashboard() {
 }
 function init() {
   document.getElementById('statusFilter').innerHTML = '<option value="All">All</option>' + DATA.statuses.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+  document.getElementById('categoryFilter').innerHTML = '<option value="All">All</option>' + DATA.categories.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
   document.getElementById('fromDate').value = DATA.minDate; document.getElementById('toDate').value = DATA.maxDate;
-  document.querySelectorAll('input[name="period"], #fromDate, #toDate, #statusFilter, #channelFilter').forEach(el => el.addEventListener('change', updateDashboard));
+  document.querySelectorAll('input[name="period"], #fromDate, #toDate, #statusFilter, #channelFilter, #categoryFilter').forEach(el => el.addEventListener('change', updateDashboard));
   document.querySelectorAll('.grain').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('.grain').forEach(x=>x.classList.remove('active')); button.classList.add('active'); chartGrain = button.dataset.grain; updateDashboard(); }));
   document.querySelectorAll('.tab').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active')); document.querySelectorAll('.section').forEach(x=>x.classList.remove('active')); button.classList.add('active'); document.getElementById(button.dataset.tab).classList.add('active'); updateDashboard(); }));
   document.addEventListener('click', event => { const button = event.target.closest('.download-btn'); if (button) downloadTable(button); });
