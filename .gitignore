@@ -7,3 +7,4 @@ TikTok Shop 2026/
 *.xls
 *.csv
 ~$*
+__pycache__/
