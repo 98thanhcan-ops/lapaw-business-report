@@ -275,9 +275,13 @@ def build_report() -> None:
     add_first_dates(orders)
     statuses = sorted({row["st"] for row in orders if row["st"]})
     dates = [row["d"] for row in orders if row["d"]]
+    order_fields = ["oid", "d", "ym", "ch", "st", "c", "rev", "qty", "cust", "p", "q", "h", "w", "fd"]
+    line_fields = ["oid", "d", "ym", "ch", "st", "c", "sku", "cat", "rev", "qty"]
     data = {
-        "orders": orders,
-        "lines": lines,
+        "orderFields": order_fields,
+        "lineFields": line_fields,
+        "orders": [[row.get(field, "") for field in order_fields] for row in orders],
+        "lines": [[row.get(field, "") for field in line_fields] for row in lines],
         "statuses": statuses,
         "categories": sorted({row["cat"] for row in lines if row.get("cat")}),
         "minDate": min(dates),
@@ -448,6 +452,8 @@ def build_report() -> None:
 <div id="chartTip" class="chart-tip"></div>
 <script>
 const DATA = __DATA__;
+if (Array.isArray(DATA.orders[0])) DATA.orders = DATA.orders.map(row => Object.fromEntries(DATA.orderFields.map((field, idx) => [field, row[idx]])));
+if (Array.isArray(DATA.lines[0])) DATA.lines = DATA.lines.map(row => Object.fromEntries(DATA.lineFields.map((field, idx) => [field, row[idx]])));
 const WEEKDAYS = ['Thứ hai','Thứ ba','Thứ tư','Thứ năm','Thứ sáu','Thứ bảy','Chủ nhật'];
 const HOUR_BUCKETS = [['0-3h',0,3],['3-6h',3,6],['6-9h',6,9],['9-12h',9,12],['12-15h',12,15],['15-18h',15,18],['18-21h',18,21],['21-24h',21,24]];
 const moneyShort = value => { const abs = Math.abs(value || 0); if (abs >= 1e9) return (value/1e9).toFixed(2)+'B'; if (abs >= 1e6) return (value/1e6).toFixed(1)+'M'; if (abs >= 1e3) return (value/1e3).toFixed(0)+'K'; return String(Math.round(value || 0)); };
