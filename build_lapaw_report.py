@@ -52,15 +52,18 @@ def parse_dt(value):
 
 
 def category(product: str, sku: str) -> str:
+    product_text = product.lower()
     text = f"{product} {sku}".lower()
-    if any(x in text for x in ["cát", "lbc", "lbf", "ltf", "tofu", "mix", "datset", "lollipop"]):
-        return "Cat litter"
     if any(x in text for x in ["pate", "súp", "sup-", "lpt"]):
         return "Wet food"
     if any(x in text for x in ["hạt", "lkb", "hat"]):
         return "Dry food"
     if any(x in text for x in ["gift", "quà", "khăn", "keomut", "pakeway"]):
         return "Gift / accessory"
+    if any(x in text for x in ["cát", "lbc", "lbf", "ltf", "lbp", "tofu", "datset", "lollipop", "mix20l"]):
+        if any(x in product_text for x in ["đậu", "đậu nành", "tofu", "cát đậu"]):
+            return "Cát hữu cơ"
+        return "Cát đất sét / THT"
     return "Other"
 
 
