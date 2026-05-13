@@ -735,8 +735,8 @@ function renderProduct(f) {
   document.getElementById('productRevenue').textContent = moneyShort(revenue); document.getElementById('productRevenueNote').innerHTML = 'Bao gồm dòng không có SKU / chưa phân bổ' + changeHtml(revenue, prevRevenue); document.getElementById('productSku').textContent = fmt(skus.length); document.getElementById('productPresence').innerHTML = `Both ${fmt(both)} · Shopee-only ${fmt(shOnly)} · TikTok-only ${fmt(ttOnly)}` + changeHtml(skus.length, prevSkuSet.size); document.getElementById('productQty').textContent = fmt(qty); document.getElementById('productQtyNote').innerHTML = 'Shopee + TikTok' + changeHtml(qty, prevQty); document.getElementById('productAsp').textContent = fmt(asp); document.getElementById('productAspNote').innerHTML = 'Doanh số / lượng bán' + changeHtml(asp, prevAsp);
   renderBars('topSkuRevenue', skus.slice(0,12), 'sku', 'rev', moneyShort, prevSkuMap); renderBars('topSkuQty', [...skus].sort((a,b)=>b.qty-a.qty).slice(0,12), 'sku', 'qty', fmt, prevSkuMap);
   document.getElementById('productTable').innerHTML = table(['SKU','Danh mục','Tổng DT','Shopee DT','TikTok DT','Lượng bán','Kênh','% share'], skus.slice(0,100).map(r => [esc(r.sku),esc(r.cat),fmt(r.rev),fmt(r.shopee),fmt(r.tiktok),fmt(r.qty),r.channels.size===2?'Both':(r.channels.has('Shopee')?'Shopee only':'TikTok only'),pct(r.rev/Math.max(revenue,1))]), 'chi_tiet_sku_noi_2_kenh');
-  const top30 = skus.slice(0,30); const maxMonth = Math.max(...lines.map(r=>monthIndex(r.ym)), monthIndex(DATA.maxDate.slice(0,7))); const months = Array.from({length:12}, (_,i)=>monthLabel(maxMonth-11+i)); const monthSku = new Map(); lines.forEach(r => { if (months.includes(r.ym)) monthSku.set(r.ym+'||'+r.sku, (monthSku.get(r.ym+'||'+r.sku)||0)+r.rev); });
-  const maxMatrix = Math.max(...months.flatMap(m => top30.map(s => monthSku.get(m+'||'+s.sku)||0)), 1);
+  const top30 = skus.slice(0,30); const maxMonth = lines.reduce((max, r) => Math.max(max, monthIndex(r.ym)), monthIndex(DATA.maxDate.slice(0,7))); const months = Array.from({length:12}, (_,i)=>monthLabel(maxMonth-11+i)); const monthSet = new Set(months); const monthSku = new Map(); lines.forEach(r => { if (monthSet.has(r.ym)) monthSku.set(r.ym+'||'+r.sku, (monthSku.get(r.ym+'||'+r.sku)||0)+r.rev); });
+  const maxMatrix = months.reduce((max, m) => Math.max(max, ...top30.map(s => monthSku.get(m+'||'+s.sku)||0)), 1);
   const matrixHeaders = ['SKU', 'Danh mục', ...months, 'Tổng', '% share'];
   const matrixRows = top30.map(s => {
     const total = months.reduce((sum, m) => sum + (monthSku.get(m+'||'+s.sku)||0), 0);
@@ -756,12 +756,21 @@ function renderProduct(f) {
 function updateDashboard() {
   document.body.classList.add('is-loading');
   setTimeout(() => {
-    tableId = 0;
-    const f = filteredData();
-    const active = document.querySelector('.section.active')?.id || 'business';
-    if (active === 'business') renderBusiness(f);
-    if (active === 'product') renderProduct(f);
-    document.body.classList.remove('is-loading');
+    try {
+      tableId = 0;
+      const f = filteredData();
+      const active = document.querySelector('.section.active')?.id || 'business';
+      if (active === 'business') renderBusiness(f);
+      if (active === 'product') renderProduct(f);
+    } catch (error) {
+      console.error(error);
+      const active = document.querySelector('.section.active')?.id || 'business';
+      const target = active === 'product' ? 'productRawNote' : 'kpiRevenueNote';
+      const node = document.getElementById(target);
+      if (node) node.textContent = 'Có lỗi khi render dashboard. Vui lòng refresh hoặc đổi filter.';
+    } finally {
+      document.body.classList.remove('is-loading');
+    }
   }, 0);
 }
 function init() {
